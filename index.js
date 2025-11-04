@@ -4,6 +4,15 @@ import fetch from "node-fetch";
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// 🔥 Prevent Express from trusting Railway proxy (stops forced HTTPS)
+app.disable("trust proxy");
+
+// 🔍 Debug: log protocol so we know what Railway is doing
+app.use((req, res, next) => {
+  console.log("🔎 Incoming protocol:", req.headers["x-forwarded-proto"]);
+  next();
+});
+
 // Parse JSON bodies
 app.use(express.json());
 
