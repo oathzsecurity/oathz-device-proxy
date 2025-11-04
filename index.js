@@ -1,55 +1,44 @@
 import express from "express";
-import cors from "cors";
-import morgan from "morgan";
-import axios from "axios";
+import fetch from "node-fetch";
 
 const app = express();
+app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
-const TARGET_URL = process.env.TARGET_URL || "https://api.oathzsecurity.com/data";
-const SHARED_KEY = process.env.SHARED_KEY || "";
+const TARGET_URL = process.env.TARGET_URL;
+if (!TARGET_URL) {
+  console.error("❌ Missing TARGET_URL env var");
+  process.exit(1);
+}
 
-app.set("trust proxy", true);
-app.use(cors());
-app.use(express.json({ limit: "256kb" }));
-app.use(morgan("tiny"));
+console.log(`✅ Device proxy forwarding to -> ${TARGET_URL}`);
 
-app.get("/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
-
+// ---- ACCEPT POST /data WITHOUT REDIRECT ----
 app.post("/data", async (req, res) => {
-  const receivedAt = new Date().toISOString();
-
-  const meta = {
-    receivedAt,
-    ip: req.ip,
-    ua: req.get("user-agent") || "unknown",
-  };
-
-  const payload = {
-    ...req.body,
-    _proxy: meta,
-  };
+  console.log("📡 Incoming POST from device:", req.body);
 
   try {
-    await axios.post(
-      TARGET_URL,
-      payload,
-      {
-        timeout: 8000,
-        headers: {
-          "Content-Type": "application/json",
-        }
-      }
-    );
-  } catch (err) {
-    console.error("Forwarding error:", err?.response?.status || err.message);
-  }
+    const upstream = await fetch(TARGET_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body)
+    });
 
-  res.status(200).json({ ok: true });
+    const result = await upstream.text();
+    console.log("⬆️  Upstream response:", result);
+
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error("🔥 Error forwarding:", err);
+    res.status(500).json({ ok: false, error: "Upstream error" });
+  }
 });
 
-app.use((_req, res) => res.status(404).json({ ok: false, error: "Not Found" }));
+// ---- CATCH-ALL 404 FOR EVERYTHING ELSE ----
+app.all("*", (req, res) => {
+  res.status(404).json({ ok: false, error: "Not Found" });
+});
 
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`Device proxy listening on :${PORT} -> ${TARGET_URL}`);
+  console.log(`🚀 Device proxy listening on :${PORT}`);
 });
