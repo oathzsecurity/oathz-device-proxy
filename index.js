@@ -1,46 +1,38 @@
-import express from "express";
+import http from "http";
 import fetch from "node-fetch";
 
-const app = express();
+const UPSTREAM = process.env.UPSTREAM_URL || "https://api.oathzsecurity.com/data";
 const PORT = process.env.PORT || 8080;
 
-// 🔥 Prevent Express from trusting Railway proxy (stops forced HTTPS)
-app.disable("trust proxy");
+const server = http.createServer((req, res) => {
+  if (req.method === "POST" && req.url === "/data") {
+    let body = "";
+    req.on("data", chunk => (body += chunk));
+    req.on("end", async () => {
+      console.log("📡 Incoming device data:", body);
 
-// 🔍 Debug: log protocol so we know what Railway is doing
-app.use((req, res, next) => {
-  console.log("🔎 Incoming protocol:", req.headers["x-forwarded-proto"]);
-  next();
-});
+      try {
+        const fwd = await fetch(UPSTREAM, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        });
 
-// Parse JSON bodies
-app.use(express.json());
-
-// Basic root check
-app.get("/", (req, res) => {
-  res.json({ ok: false, error: "Not Found" });
-});
-
-// Device POST endpoint
-app.post("/data", async (req, res) => {
-  console.log("📡 Incoming device data:", req.body);
-
-  try {
-    const fwd = await fetch("https://api.oathzsecurity.com/data", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req.body),
+        const responseJson = await fwd.json();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, result: responseJson }));
+      } catch (err) {
+        console.error("❌ Forwarding error:", err);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "Forwarding failed" }));
+      }
     });
-
-    const result = await fwd.json();
-    res.json({ ok: true, result });
-  } catch (err) {
-    console.error("❌ Forwarding error:", err);
-    res.status(500).json({ ok: false, error: "Forwarding failed" });
+  } else {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "Not Found" }));
   }
 });
 
-// Start server
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Device proxy listening on :${PORT}`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ RAW HTTP proxy listening on :${PORT}`);
 });
