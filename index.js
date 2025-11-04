@@ -1,43 +1,37 @@
 import express from "express";
+import fetch from "node-fetch";
 
 const app = express();
+const PORT = process.env.PORT || 8080;
+
+// Parse JSON bodies
 app.use(express.json());
 
-const TARGET_URL = process.env.TARGET_URL;
-if (!TARGET_URL) {
-  console.error("❌ Missing TARGET_URL env var");
-  process.exit(1);
-}
+// Basic root check
+app.get("/", (req, res) => {
+  res.json({ ok: false, error: "Not Found" });
+});
 
-console.log(`✅ Device proxy forwarding to -> ${TARGET_URL}`);
-
-// ---- ACCEPT POST /data WITHOUT REDIRECT ----
+// Device POST endpoint
 app.post("/data", async (req, res) => {
-  console.log("📡 Incoming POST from device:", req.body);
+  console.log("📡 Incoming device data:", req.body);
 
   try {
-    const upstream = await fetch(TARGET_URL, {
+    const fwd = await fetch("https://api.oathzsecurity.com/data", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req.body)
+      body: JSON.stringify(req.body),
     });
 
-    const result = await upstream.text();
-    console.log("⬆️  Upstream response:", result);
-
-    res.status(200).json({ ok: true });
+    const result = await fwd.json();
+    res.json({ ok: true, result });
   } catch (err) {
-    console.error("🔥 Error forwarding:", err);
-    res.status(500).json({ ok: false, error: "Upstream error" });
+    console.error("❌ Forwarding error:", err);
+    res.status(500).json({ ok: false, error: "Forwarding failed" });
   }
 });
 
-// ---- CATCH-ALL 404 FOR EVERYTHING ELSE ----
-app.all("*", (req, res) => {
-  res.status(404).json({ ok: false, error: "Not Found" });
-});
-
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`🚀 Device proxy listening on :${PORT}`);
+// Start server
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Device proxy listening on :${PORT}`);
 });
